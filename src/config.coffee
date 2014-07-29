@@ -4,6 +4,25 @@ path = require 'path'
 
 exports.defaults = ->
   webPackage:
+    easyRpm:
+      name: "noname",
+      summary: "No Summary",
+      description: "No Description",
+      version: "0.1.0",
+      release: "1",
+      license: "MIT",
+      vendor: "Vendor",
+      group: "Development/Tools",
+      buildArch: "noarch",
+      dependencies: [],
+      preInstallScript: [],
+      postInstallScript: [],
+      preUninstallScript: [],
+      postUninstallScript: [],
+      keepTemp: false
+      targetDestination: "/"
+
+
     archiveName: "app"
     outPath: "dist"
     configName: "config"
@@ -56,11 +75,20 @@ exports.validate = (config, validators) ->
     if config.webPackage.outPath?
       if typeof config.webPackage.outPath is "string"
         config.webPackage.outPath = validators.determinePath config.webPackage.outPath, config.root
+
+        #if we're building an RPM build out the appropriate install path
+        if /\.rpm$/.test(config.webPackage.archiveName)
+          unless /\/$/.test config.webPackage.easyRpm.installDestination
+            config.webPackage.easyRpm.targetDestination += "/"
+          unless /^\//.test config.webPackage.easyRpm.installDestination
+            config.webPackage.easyRpm.installDestination = "/"+ config.webPackage.easyRpm.installDestination
+          config.webPackage.outPath = config.webPackage.outPath+"/BUILDROOT#{config.webPackage.easyRpm.installDestination}"
       else
         errors.push "webPackage.outPath must be a string."
 
     validators.ifExistsIsString(errors, "webPackage.configName", config.webPackage.configName)
     validators.ifExistsIsString(errors, "webPackage.archiveName", config.webPackage.archiveName)
+
     validators.ifExistsIsBoolean(errors, "webPackage.useEntireConfig", config.webPackage.useEntireConfig)
 
     if validators.ifExistsIsArray(errors, "webPackage.exclude", config.webPackage.exclude)
@@ -72,11 +100,18 @@ exports.validate = (config, validators) ->
           errors.push "webPackage.exclude must be an array of strings"
           break
       config.webPackage.exclude = fullPathExcludes
-      config.webPackage.exclude.push config.webPackage.outPath
+      if /\.rpm$/.test(config.webPackage.archiveName)
+        buildRootIndex = config.webPackage.outPath.indexOf("BUILDROOT")
+        tmpDir = path.resolve(config.webPackage.outPath.substr(0,buildRootIndex));
+        config.webPackage.exclude.push tmpDir
+      else
+        config.webPackage.exclude.push config.webPackage.outPath
 
     validators.ifExistsIsString(errors, "webPackage.appjs", config.webPackage.appjs)
 
     if not config.server or not config.server.path
       config.webPackage.appjs = undefined
+
+
 
   errors

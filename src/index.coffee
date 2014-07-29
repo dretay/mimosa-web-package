@@ -2,9 +2,11 @@
 
 path = require 'path'
 fs = require 'fs'
-{exec} = require 'child_process'
+{exec, spawn} = require 'child_process'
 
 _ = require 'lodash'
+easyRpm = require('./easyRpm')
+mkdirp = require('mkdirp')
 
 moduleConfig = require './config'
 
@@ -57,6 +59,52 @@ __tarball = (config, done) ->
 
     done()
 
+__rpm = (config, done) ->
+  wrench = require('wrench')
+  rimraf = require 'rimraf'
+
+  buildRootIndex = config.webPackage.outPath.indexOf("BUILDROOT")
+  tmpDir = path.resolve(config.webPackage.outPath.substr(0,buildRootIndex));
+  logger.debug "Inferred root of rpm to be #{tmpDir}"
+  rpmStructure = ["BUILD","RPMS","SOURCES","SPECS","SRPMS"]
+
+  #Create RPM build folder structure
+  fs.mkdirSync tmpDir+"/"+folder for folder in rpmStructure
+
+  #generate spec file
+  buildRoot = tmpDir+"/BUILDROOT"
+  logger.info "Generating RPM spec file from #{buildRoot}"
+  specFilepath = easyRpm.writeSpecFile(config, logger, tmpDir, buildRoot)
+
+  #build rpm
+  logger.info "Building RPM package"
+  #spawn rpmbuilt tool
+  buildCmd = "rpmbuild"
+  buildArgs = [
+    "-bb",
+    "--buildroot",
+    buildRoot,
+    specFilepath
+  ]
+  logger.info "Building RPM: #{buildCmd} #{buildArgs.join(' ')}"
+
+  rpmbuild = spawn buildCmd, buildArgs
+
+  rpmbuild.stdout.on 'data',  (data)-> logger.debug data
+  rpmbuild.stderr.on 'data', (data)-> logger.warn data
+
+  rpmbuild.on 'close', (code)->
+
+    if code != 0
+      logger.error('rpmbuild process exited with code ' + code);
+
+      #clean out temp folders
+      rimraf.sync tmpDir+"/"+folder for folder in rpmStructure
+
+      null
+    done()
+
+
 __zip = (config, done) ->
   JSZip = require('jszip')
   wrench = require('wrench')
@@ -82,11 +130,15 @@ __zip = (config, done) ->
 _package = (config, options, next) ->
   logger.info "Beginning web-package"
 
+  tmpDir = config.webPackage.outPath
+  if /\.rpm$/.test(config.webPackage.archiveName)
+    buildRootIndex = config.webPackage.outPath.indexOf("BUILDROOT")
+    tmpDir = path.resolve(config.webPackage.outPath.substr(0,buildRootIndex));
   # delete directory if it exists
-  if fs.existsSync config.webPackage.outPath
+  if fs.existsSync tmpDir
     rimraf = require 'rimraf'
-    logger.debug "Deleting #{config.webPackage.outPath} ]]"
-    rimraf.sync config.webPackage.outPath
+    logger.debug "Deleting #{tmpDir} ]]"
+    rimraf.sync tmpDir
 
   # copy over all assets
   logger.debug "Copying [[ #{config.root} ]] to [[ #{config.webPackage.outPath} ]]"
@@ -129,6 +181,8 @@ __runNPMInstall = (config, next) ->
         archive = __tarball
         if /\.zip$/.test(config.webPackage.archiveName)
           archive = __zip
+        else if /\.rpm$/.test(config.webPackage.archiveName)
+          archive = __rpm
         archive config, done
       else
         done()
@@ -232,7 +286,7 @@ __writeApplicationStarter = (config) ->
 
 copyDirSyncRecursive = (sourceDir, newDirLocation, excludes) ->
   checkDir = fs.statSync(sourceDir);
-  fs.mkdirSync(newDirLocation, checkDir.mode);
+  mkdirp.sync(newDirLocation, checkDir.mode)
   files = fs.readdirSync(sourceDir);
 
   files.forEach (f) ->
