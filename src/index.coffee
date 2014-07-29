@@ -101,7 +101,11 @@ __rpm = (config, done) ->
       #clean out temp folders
       rimraf.sync tmpDir+"/"+folder for folder in rpmStructure
 
-      null
+    else
+      outputFilename = "#{config.webPackage.easyRpm.name}-#{config.webPackage.easyRpm.version}-#{config.webPackage.easyRpm.release}.#{config.webPackage.easyRpm.buildArch}.rpm"
+      outputFilepath = path.join(tmpDir, "RPMS", config.webPackage.easyRpm.buildArch, outputFilename);
+      logger.debug("Copy output RPM package to the current directory: #{outputFilepath}");
+      fs.renameSync outputFilepath, path.join config.webPackage.outPath, outputFilename
     done()
 
 
